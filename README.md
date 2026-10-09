@@ -19,6 +19,8 @@ account può già vedere.
 > Il sito è basato su Sponzy (Laravel): gli endpoint restituiscono HTML, non JSON.
 > I post PPV non comprati vengono saltati.
 
+Guida rapida in italiano, con il comando unico `./avvia.sh`: [GUIDA.md](GUIDA.md).
+
 ## Installazione
 
 ```bash
