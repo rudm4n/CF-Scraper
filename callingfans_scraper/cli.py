@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import logging
 import sys
 from pathlib import Path
 
@@ -77,12 +78,15 @@ def cmd_list(args: argparse.Namespace) -> int:
 
 
 def _download(items, *, area_label, args, cfg, save_dir, db, dl_client) -> int:
-    items = list(items)
-    print(f"== {area_label}: {len(items)} media trovati")
+    print(f"== {area_label}", flush=True)
     if args.dry_run:
-        for m in items:
-            print(f"   {m.creator.username}\t{m.media_type.value}\t{m.post_id}\t{m.url}")
+        n = 0
+        for n, m in enumerate(items, 1):
+            print(f"   {m.creator.username}\t{m.media_type.value}\t{m.post_id}\t{m.url}", flush=True)
+        print(f"   {n} media trovati")
         return 0
+    items = list(items)
+    print(f"   {len(items)} media trovati, scarico...", flush=True)
     res = download_all(
         items,
         save_dir=save_dir,
@@ -180,16 +184,24 @@ def build_parser() -> argparse.ArgumentParser:
     )
     s.add_argument("--save-dir", help="cartella di destinazione per questo giro")
     s.add_argument("--dry-run", action="store_true", help="elenca i media senza scaricarli")
+    s.add_argument("-v", "--verbose", action="store_true", help="mostra ogni richiesta HTTP")
     s.set_defaults(func=cmd_scrape)
     return p
 
 
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    logging.basicConfig(
+        level=logging.DEBUG if getattr(args, "verbose", False) else logging.INFO,
+        format="   %(message)s",
+        stream=sys.stderr,
+    )
+    logging.getLogger("httpx").setLevel(logging.INFO if getattr(args, "verbose", False) else logging.WARNING)
     try:
         return args.func(args)
     except (AuthError, NotImplementedError) as exc:
         print(f"Errore: {exc}", file=sys.stderr)
         return 2
     except KeyboardInterrupt:
+        print("\nInterrotto.", file=sys.stderr)
         return 130

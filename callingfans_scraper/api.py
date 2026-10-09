@@ -13,6 +13,7 @@ servono le pagine HTML di esempio.
 
 from __future__ import annotations
 
+import logging
 import time
 from typing import Any, Iterator
 
@@ -21,6 +22,9 @@ import httpx
 from .auth import Auth
 from .models import Area, Creator, Media
 from .parser import BASE_URL, ProfileInfo, is_logged_in, parse_cards, parse_post_media, parse_profile
+
+
+log = logging.getLogger(__name__)
 
 
 class ApiError(RuntimeError):
@@ -64,6 +68,7 @@ class CallingFansAPI:
         raise ApiError(f"{path}: troppi tentativi falliti (ultimo status {resp.status_code})")
 
     def check_session(self) -> None:
+        log.info("verifico la sessione...")
         if not is_logged_in(self.get_html("/")):
             raise ApiError("Non risulti loggato: cookie non validi o scaduti, riesegui `callingfans-scraper auth`.")
 
@@ -89,12 +94,14 @@ class CallingFansAPI:
                 return
             seen.update(new)
             skip += len(ids)
+            log.info("%s: %d post letti%s", path, skip, f" di {total}" if total else "")
             yield html
             if total and skip >= total:
                 return
 
     def posts(self, creator: Creator) -> Iterator[Media]:
         info = self.profile(creator.username)
+        log.info("profilo %s: id %s, %d post", creator.username, info.profile_id, info.total_posts)
         for page in self._paginate("/ajax/updates", {"id": info.profile_id}, info.total_posts):
             yield from parse_post_media(page, Area.POSTS, creator)
 
