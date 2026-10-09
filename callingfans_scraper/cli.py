@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import getpass
 import sys
 from pathlib import Path
 
@@ -9,26 +8,41 @@ import httpx
 
 from .api import ApiError, CallingFansAPI
 from .auth import Auth, AuthError
+from .browser_cookies import firefox_cookie_header
 from .config import Config
 from .db import MediaDB
 from .downloader import download_all
 from .models import Area, Creator
 
 
+def _clean_cookie(raw: str) -> str:
+    raw = raw.strip()
+    if raw.lower().startswith("cookie:"):
+        raw = raw[len("cookie:"):].strip()
+    return raw
+
+
 def cmd_auth(args: argparse.Namespace) -> int:
-    print("Incolla i valori presi dal browser (F12 > Network > una richiesta API > Headers).")
-    print("Non vengono mostrati a schermo. Invio vuoto per saltare un campo.\n")
-    cookie = getpass.getpass("Cookie: ").strip()
-    user_agent = input("User-Agent: ").strip()
-    extra: dict[str, str] = {}
-    print("Altri header richiesti (es. Authorization). Riga vuota per finire.")
-    while True:
-        name = input("  nome header: ").strip()
-        if not name:
-            break
-        extra[name] = getpass.getpass(f"  valore di {name}: ").strip()
-    path = Auth(cookie=cookie, user_agent=user_agent, extra_headers=extra).save()
-    print(f"\nCredenziali salvate in {path} (permessi 600).")
+    if args.firefox:
+        try:
+            cookie, db = firefox_cookie_header()
+        except (FileNotFoundError, LookupError) as exc:
+            print(f"Errore: {exc}", file=sys.stderr)
+            return 2
+        print(f"Cookie letti da {db}")
+    elif args.cookie_file:
+        cookie = _clean_cookie(Path(args.cookie_file).expanduser().read_text(encoding="utf-8"))
+    else:
+        print("Incolla il valore dell'header Cookie (F12 > Network > una richiesta > Headers) e premi Invio.")
+        print("Se il terminale non incolla, usa `auth --firefox` oppure `auth --cookie-file FILE`.")
+        cookie = _clean_cookie(input("Cookie: "))
+    if not cookie:
+        print("Errore: cookie vuoto.", file=sys.stderr)
+        return 2
+    path = Auth(cookie=cookie, user_agent=args.user_agent or "").save()
+    print(f"Credenziali salvate in {path} (permessi 600).")
+    if args.cookie_file:
+        print(f"Ora puoi cancellare {args.cookie_file}: contiene la tua sessione.")
     return 0
 
 
@@ -88,9 +102,14 @@ def cmd_scrape(args: argparse.Namespace) -> int:
     areas = [Area(a) for a in (args.areas or cfg.areas)]
     save_dir = Path(args.save_dir or cfg.save_dir).expanduser()
 
-    api = CallingFansAPI(Auth.load(), delay=cfg.request_delay_seconds)
+    auth = Auth.load()
+    api = CallingFansAPI(auth, delay=cfg.request_delay_seconds)
     db = MediaDB(save_dir / ".callingfans.db")
-    dl_client = httpx.Client(timeout=httpx.Timeout(30.0, read=300.0), follow_redirects=True)
+    # Le immagini in /files/storage/... sono protette: servono i cookie anche qui.
+    dl_headers = {k: v for k, v in auth.headers().items() if k != "Accept"}
+    dl_client = httpx.Client(
+        headers=dl_headers, timeout=httpx.Timeout(30.0, read=300.0), follow_redirects=True
+    )
     failed = 0
     common = dict(args=args, cfg=cfg, save_dir=save_dir, db=db, dl_client=dl_client)
     try:
@@ -138,7 +157,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sub = p.add_subparsers(dest="command", required=True)
 
-    sub.add_parser("auth", help="salva cookie e header della tua sessione").set_defaults(func=cmd_auth)
+    a = sub.add_parser("auth", help="salva i cookie della tua sessione")
+    src = a.add_mutually_exclusive_group()
+    src.add_argument("--firefox", action="store_true", help="leggi i cookie dal profilo di Firefox")
+    src.add_argument("--cookie-file", help="file di testo con il valore dell'header Cookie")
+    a.add_argument("--user-agent", help="User-Agent del browser (opzionale)")
+    a.set_defaults(func=cmd_auth)
 
     c = sub.add_parser("config", help="mostra o modifica la configurazione")
     c.add_argument("--save-dir")

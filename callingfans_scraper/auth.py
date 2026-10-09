@@ -14,6 +14,12 @@ from pathlib import Path
 
 from .config import config_dir
 
+# Usato se non indicato: un client che si presenta come python-httpx
+# rischia di essere bloccato da filtri anti-bot.
+DEFAULT_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:131.0) Gecko/20100101 Firefox/131.0"
+)
+
 
 class AuthError(RuntimeError):
     pass
@@ -31,8 +37,7 @@ class Auth:
         if not self.cookie and not self.extra_headers:
             raise AuthError("Credenziali mancanti: esegui prima `callingfans-scraper auth`.")
         headers = {"Accept": "application/json, text/plain, */*"}
-        if self.user_agent:
-            headers["User-Agent"] = self.user_agent
+        headers["User-Agent"] = self.user_agent or DEFAULT_USER_AGENT
         if self.cookie:
             headers["Cookie"] = self.cookie
         headers.update(self.extra_headers)

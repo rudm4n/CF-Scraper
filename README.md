@@ -29,7 +29,8 @@ pip install -e .
 ## Uso
 
 ```bash
-callingfans-scraper auth                      # incolla header Cookie e User-Agent del browser
+callingfans-scraper auth --firefox            # legge i cookie da Firefox (fai prima login sul sito)
+callingfans-scraper auth --cookie-file c.txt  # in alternativa: file con il valore dell'header Cookie
 callingfans-scraper config --save-dir ~/CF    # opzionale
 callingfans-scraper scrape -u alice bob -a posts purchased
 callingfans-scraper scrape -u alice --dry-run  # elenca senza scaricare
