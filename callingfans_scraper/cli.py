@@ -14,6 +14,7 @@ from .config import Config
 from .db import MediaDB
 from .downloader import download_all
 from .models import Area, Creator
+from .parser import BASE_URL
 
 
 def _clean_cookie(raw: str) -> str:
@@ -97,7 +98,11 @@ def _download(items, *, area_label, args, cfg, save_dir, db, dl_client) -> int:
     )
     print(f"   scaricati {len(res.downloaded)}, già presenti {res.skipped}, falliti {len(res.failed)}")
     for media, err in res.failed:
-        print(f"   ! {media.id}: {err}", file=sys.stderr)
+        post_url = f"{BASE_URL}/{media.creator.username}/post/{media.post_id}"
+        print(f"   ! {err}  {media.url}\n     post: {post_url}", file=sys.stderr)
+    if any(err == "HTTP 404" for _, err in res.failed):
+        print("   (HTTP 404 = file assente sul server: apri il post nel browser per verificare)",
+              file=sys.stderr)
     return len(res.failed)
 
 

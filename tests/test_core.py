@@ -66,14 +66,16 @@ def test_download_all_writes_files_and_skips_on_second_run(tmp_path, monkeypatch
     items = [make_media("a"), make_media("b"), make_media("a"), make_media("bad")]
     tpl = "{username}/{media_id}.{ext}"
 
-    monkeypatch.setattr("callingfans_scraper.downloader.time.sleep", lambda s: None)
+    sleeps = []
+    monkeypatch.setattr("callingfans_scraper.downloader.time.sleep", sleeps.append)
 
     res = download_all(items, save_dir=tmp_path, template=tpl, db=db, client=client, max_workers=2)
     assert sorted(p.name for p in res.downloaded) == ["a.jpg", "b.jpg"]
     assert res.skipped == 1  # il duplicato di "a"
-    assert [m.id for m, _ in res.failed] == ["bad"]
+    assert res.failed == [(items[3], "HTTP 404")]
     assert (tmp_path / "alice" / "a.jpg").read_bytes() == b"data-/a.jpg"
     assert not list(tmp_path.rglob("*.part"))
+    assert sleeps == []  # 404: nessun nuovo tentativo
 
     res2 = download_all(items, save_dir=tmp_path, template=tpl, db=db, client=client)
     assert res2.downloaded == []

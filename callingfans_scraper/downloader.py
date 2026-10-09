@@ -56,9 +56,11 @@ def _fetch(client: httpx.Client, media: Media, target: Path, retries: int = 3) -
                         f.write(chunk)
             tmp.replace(target)
             return target
-        except httpx.HTTPError:
+        except httpx.HTTPError as exc:
             tmp.unlink(missing_ok=True)
-            if attempt == retries:
+            status = exc.response.status_code if isinstance(exc, httpx.HTTPStatusError) else None
+            # 4xx (es. 404 file rimosso dal server) non cambia riprovando.
+            if attempt == retries or (status and 400 <= status < 500 and status != 429):
                 raise
             time.sleep(2**attempt)
     raise AssertionError("unreachable")
@@ -92,9 +94,13 @@ def download_all(
             try:
                 path = fut.result()
             except Exception as exc:  # noqa: BLE001 - riportiamo e continuiamo
-                result.failed.append((media, str(exc)))
+                if isinstance(exc, httpx.HTTPStatusError):
+                    err = f"HTTP {exc.response.status_code}"
+                else:
+                    err = str(exc) or type(exc).__name__
+                result.failed.append((media, err))
                 if on_done:
-                    on_done(media, None, str(exc))
+                    on_done(media, None, err)
                 continue
             # Scritture sul DB solo da questo thread.
             db.mark_downloaded(media, path)
