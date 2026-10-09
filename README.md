@@ -7,9 +7,17 @@ storie, highlights e acquisti.
 Usa la sessione del tuo browser (cookie + header), quindi scarica solo quello che il tuo
 account può già vedere.
 
-> **Stato:** la parte generica è pronta: CLI, configurazione, credenziali, download in
-> parallelo con retry e registro dei file già scaricati. Gli endpoint del sito
-> (`callingfans_scraper/api.py`) vanno ancora implementati partendo da un file HAR del sito.
+> **Stato**
+>
+> | Sezione | Stato |
+> |---|---|
+> | Post di un creator | implementato (`/ajax/updates`), da provare con sessione reale |
+> | Acquisti (PPV) | implementato (`/ajax/user/purchases`), da provare con sessione reale |
+> | Lista abbonamenti | da mappare: per ora indica i creator con `-u` |
+> | Messaggi, storie, highlights | da mappare: servono pagine HTML di esempio |
+>
+> Il sito è basato su Sponzy (Laravel): gli endpoint restituiscono HTML, non JSON.
+> I post PPV non comprati vengono saltati.
 
 ## Installazione
 
@@ -21,12 +29,10 @@ pip install -e .
 ## Uso
 
 ```bash
-callingfans-scraper auth                      # incolla Cookie, User-Agent e header richiesti
+callingfans-scraper auth                      # incolla header Cookie e User-Agent del browser
 callingfans-scraper config --save-dir ~/CF    # opzionale
-callingfans-scraper list                      # creator a cui sei abbonato
-callingfans-scraper scrape                    # tutto, per tutti i creator
-callingfans-scraper scrape -u alice bob -a posts messages
-callingfans-scraper scrape --dry-run          # elenca senza scaricare
+callingfans-scraper scrape -u alice bob -a posts purchased
+callingfans-scraper scrape -u alice --dry-run  # elenca senza scaricare
 ```
 
 I file finiscono in `save_dir` secondo `filename_template`, che di default è:

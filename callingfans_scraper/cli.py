@@ -7,12 +7,12 @@ from pathlib import Path
 
 import httpx
 
-from .api import CallingFansAPI
+from .api import ApiError, CallingFansAPI
 from .auth import Auth, AuthError
 from .config import Config
 from .db import MediaDB
 from .downloader import download_all
-from .models import Area
+from .models import Area, Creator
 
 
 def cmd_auth(args: argparse.Namespace) -> int:
@@ -51,11 +51,36 @@ def cmd_list(args: argparse.Namespace) -> int:
     cfg = Config.load()
     api = CallingFansAPI(Auth.load(), delay=cfg.request_delay_seconds)
     try:
+        api.check_session()
         for creator in api.subscriptions():
-            print(f"{creator.username}\t{creator.id}")
+            print(creator.username)
+    except ApiError as exc:
+        print(f"Errore: {exc}", file=sys.stderr)
+        return 2
     finally:
         api.close()
     return 0
+
+
+def _download(items, *, area_label, args, cfg, save_dir, db, dl_client) -> int:
+    items = list(items)
+    print(f"== {area_label}: {len(items)} media trovati")
+    if args.dry_run:
+        for m in items:
+            print(f"   {m.creator.username}\t{m.media_type.value}\t{m.post_id}\t{m.url}")
+        return 0
+    res = download_all(
+        items,
+        save_dir=save_dir,
+        template=cfg.filename_template,
+        db=db,
+        client=dl_client,
+        max_workers=cfg.max_concurrent_downloads,
+    )
+    print(f"   scaricati {len(res.downloaded)}, già presenti {res.skipped}, falliti {len(res.failed)}")
+    for media, err in res.failed:
+        print(f"   ! {media.id}: {err}", file=sys.stderr)
+    return len(res.failed)
 
 
 def cmd_scrape(args: argparse.Namespace) -> int:
@@ -66,44 +91,44 @@ def cmd_scrape(args: argparse.Namespace) -> int:
     api = CallingFansAPI(Auth.load(), delay=cfg.request_delay_seconds)
     db = MediaDB(save_dir / ".callingfans.db")
     dl_client = httpx.Client(timeout=httpx.Timeout(30.0, read=300.0), follow_redirects=True)
-    total_failed = 0
+    failed = 0
+    common = dict(args=args, cfg=cfg, save_dir=save_dir, db=db, dl_client=dl_client)
     try:
-        creators = api.subscriptions()
+        api.check_session()
         if args.creators:
-            wanted = {c.lower() for c in args.creators}
-            creators = [c for c in creators if c.username.lower() in wanted]
-            missing = wanted - {c.username.lower() for c in creators}
-            for name in sorted(missing):
-                print(f"! {name}: non risulta tra i tuoi abbonamenti, salto", file=sys.stderr)
+            creators = [Creator(id=u.lstrip("@").lower(), username=u.lstrip("@")) for u in args.creators]
+        else:
+            creators = api.subscriptions()
+        wanted = {c.id for c in creators}
 
+        per_creator = {
+            Area.POSTS: api.posts,
+            Area.MESSAGES: api.messages,
+            Area.STORIES: api.stories,
+            Area.HIGHLIGHTS: api.highlights,
+        }
         for creator in creators:
             for area in areas:
-                print(f"== {creator.username} / {area.value}")
-                items = list(api.media(creator, area))
-                if args.dry_run:
-                    for m in items:
-                        print(f"   {m.media_type.value}\t{m.id}\t{m.url}")
+                if area not in per_creator:
                     continue
-                res = download_all(
-                    items,
-                    save_dir=save_dir,
-                    template=cfg.filename_template,
-                    db=db,
-                    client=dl_client,
-                    max_workers=cfg.max_concurrent_downloads,
-                )
-                total_failed += len(res.failed)
-                print(
-                    f"   scaricati {len(res.downloaded)}, già presenti {res.skipped}, "
-                    f"falliti {len(res.failed)}"
-                )
-                for media, err in res.failed:
-                    print(f"   ! {media.id}: {err}", file=sys.stderr)
+                try:
+                    items = per_creator[area](creator)
+                    failed += _download(items, area_label=f"{creator.username} / {area.value}", **common)
+                except NotImplementedError as exc:
+                    print(f"== {creator.username} / {area.value}: saltato, {exc}", file=sys.stderr)
+
+        if Area.PURCHASED in areas:
+            # Gli acquisti sono una lista unica dell'account: li filtro sui creator scelti.
+            items = (m for m in api.purchased() if not args.creators or m.creator.id in wanted)
+            failed += _download(items, area_label="acquisti", **common)
+    except ApiError as exc:
+        print(f"Errore: {exc}", file=sys.stderr)
+        return 2
     finally:
         dl_client.close()
         db.close()
         api.close()
-    return 1 if total_failed else 0
+    return 1 if failed else 0
 
 
 def build_parser() -> argparse.ArgumentParser:
